@@ -5,15 +5,13 @@
 # Searching EBAY can be done via the URL and does not require authentication
 # maybe unless you were hitting hit hundreds of time ber second :-)
 #
-# Lots of mungling IFS in this script - sometimes to make bash do tokenizing 
-# on specified characters, others to prevent breaking up of strings with imbedded spaces
-# being assigned and expanded.
+# A bit of mungling $IFS, usually to make bash do tokenizing 
+# on specified characters
 #
 # Usage: $0 [search item]
 #
 PS4='$LINENO: '
 set -u			# Complain about unset variables
-
 #
 # Template for EBay search request:
 #
@@ -22,9 +20,10 @@ set -u			# Complain about unset variables
 # &rt=nc&
 # LH_ItemCondition=4	Pre-owned/used
 
-fipipe=$(mktemp)
-
 declare -r SEARCH="https://www.ebay.com/sch/i.html?_nkw=%s&LH_Sold=1&LH_Complete=1&rt=nc&LH_ItemCondition=4"
+
+OPT_DEBUG=false
+OPT_LOG=''
 
 #
 # Round - take DD.cc and round to nearest DD
@@ -42,6 +41,12 @@ function round()
 declare -i current_pos=0		# Current line 
 declare -i current_pct=0		# Current percent
 declare    current_line=''		# Current line content
+
+function debug()
+{
+	$OPT_DEBUG && echo "debug: $*" 1>&2
+	[[ -n ${OPT_LOG:-} ]] && echo "debug: $*" 1>&2 >> $OPT_LOG
+}
 
 #
 # next_line - iterate to the next line of INPUT
@@ -73,8 +78,17 @@ function url_encode() {
 #
 # MAIN
 #
-exec 3>&1			# Set up FDs for dialog
 
+while getopts dl: x_opt; do
+	case $x_opt in
+	d)	OPT_DEBUG=true;;
+	l)	OPT_LOG=$OPTARG; >$OPT_LOG;;
+	*)	;;
+	esac
+done
+shift $(( $OPTIND - 1 ))
+
+exec 3>&1			# Set up FDs for dialog
 #
 # If $* not empty, take as search item else pop text entry dialog box
 #
@@ -88,8 +102,11 @@ else
 	rc=$?
 	[[ -n ${search_for:-} ]] || exit 0
 fi
+debug "Search item \"$search_for\""
  
 SEARCH_URL="$(printf "$SEARCH" "$(url_encode "$search_for")")"
+
+debug "Search URL \"$SEARCH_URL\""
 
 #
 # Fetch web page using "lynx -dump" - dont care about HTML, just want content
@@ -97,6 +114,7 @@ SEARCH_URL="$(printf "$SEARCH" "$(url_encode "$search_for")")"
 INPUT="$(lynx -dump -width=1024 "$SEARCH_URL" | sed 's/^[ \t]*//')"
 IFS=$'\n' INPUT=( ${INPUT} ) ; unset IFS
 INPUT_MAX=${#INPUT[@]}
+debug "Query response ${INPUT_MAX} lines"
 
 #
 # What a sales record looks like:
@@ -125,21 +143,26 @@ while next_line; do
 done
 
 if [[ $ITEM_COUNT -eq 0 ]]; then
+	debug "No results for \"$search_for\""
 	dialog -title "No results" \
 		--msgbox "The search for \"$search_for\" did not return any items" \
 		10 20
 	exit 0
 fi
+debug "Found $ITEM_COUNT transactions"
+
 #
 # Collapse info arrays into one assoc array index by price
 #
-declare -A ITEMS
+declare -A ITEMS KEYS
 BASE=()
-for (( ix=0 ; $ix < $ITEM_COUNT; ((ix++)) )); do
-	x_index=$(round ${price[$ix]/\$/})
-	ITEMS[$x_index]="$(printf "'%s' '%s@%s %s' 'on'\n" "$x_index" "${price[$ix]}" "${description[$ix]}")"
-done
 
+for (( ix=0 ; $ix < $ITEM_COUNT; ix++ )); do
+	x_index=$(round ${price[$ix]/\$/})
+	ITEMS[$x_index]="${price[$ix]}@${description[$ix]}"
+	KEYS[$x_index]=$x_index
+	debug "ITEM $x_index |${ITEMS[$x_index]}|"
+done
 #
 # Sort prices high to low
 #
@@ -147,14 +170,10 @@ IFS=' ' read -a BASE_ORDER <<<"$(echo "${!ITEMS[@]}" | tr ' '  '\012' | sort -r 
 ORDER=( ${BASE_ORDER[@]} )
 unset IFS
 
-#
-# The dialog command has to be written to fie then executed
-# Quoting of strings with embedded spaces is too weird to make work
-# direct exec.
-# 
-script_temp=$(mktemp)
-trap "rm -f $script_temp; clear;" 0
- 
+debug "Base order: ${ORDER[@]}"
+
+$OPT_DEBUG || trap 'clear' 0
+
 while true; do
 	# Window lines => 80% screen lines
 	# Window cols = 80% screen cols
@@ -171,42 +190,51 @@ while true; do
 	declare -i text_lines=$(( ( $win_lines / 10 ) * 8 ))
 
 	X_ORDER="${ORDER[@]}"
-	t_ave=$(( ( $(printf -- "%s + " ${ORDER[@]} | sed 's/+ $//') ) / ${#ORDER[@]} ))
-	(
-	cat <<_EOF_
-	dialog --column-separator @ --title 'Price search "$search_for"' \
+	#
+	# This one-liner genrates the average of the numeric values
+	# of the elements of ${ORDER[@]} -- which are dollar-rounded prices
+	#
+	t_ave=$(( ( $(printf -- "%s + " ${ORDER[@]}) 0 ) / ${#ORDER[@]} ))
+
+	#
+	# Build dialog checkbox entires
+	#
+	x_args=()
+	for x_seq in ${ORDER[@]}; do
+		x_args+=( ${KEYS[$x_seq]} "${ITEMS[$x_seq]}" on )
+	done
+	#
+	# Output of dialog is list of tags from selected rows
+	# Since the rows are sorted by price, the selection keys will
+	# be sorted high to low.
+	#
+	resp=$(dialog --column-separator @ --title "Price search $search_for" \
 		--extra-button --extra-label 'New Item' \
 		--cancel-label Done \
 		--ok-label Update \
-		--checklist "Found ${#ORDER[@]} items, average price \\\$$t_ave" $win_lines $win_cols $text_lines
-_EOF_
-	for x_seq in ${ORDER[@]}; do
-		IFS='';
-		echo "${ITEMS[$x_seq]} ";
-		unset IFS
-	done
-	echo ''
-	) | tr '\012' ' ' > $script_temp
-	resp=$(sh $script_temp 2>&1 1>&3)
+		--checklist "Found ${#ORDER[@]} items, average price \$$t_ave" \
+		$win_lines $win_cols $text_lines \
+		"${x_args[@]}" 2>&1 1>&3)
 	rcode=$?
 	corder="${ORDER[@]}"
 	case $rcode in
-		0) 	# OK
+		0) 	# Pressed 'OK' button
 			[[ "$resp" == "$X_ORDER" ]] && exit 0
 			ORDER=( $resp )
 			;;
-		3)	# EXTRA
-			exec sh $0
+		3)	# Pressed 'EXTRA' button
+			exec bash $0
 			;;
-		255)	# ESCAPE
+		255)	# Pressed 'ESCAPE' button
 			if [[ $resp =~ Error ]]; then
 				echo "$resp"
 				exit $rcode
 			fi
-			clear
 			exit 0
 			;;
-		*)	exit $rcode
+		*)	echo "Weird exit code from dialog: $rcode" 1>&2
+			exit $rcode
 			;;
 	esac
 done
+# notreached
