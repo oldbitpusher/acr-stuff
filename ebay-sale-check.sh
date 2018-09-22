@@ -74,6 +74,7 @@ function url_encode() {
         esac
     done
 }
+	
 
 #
 # MAIN
@@ -195,6 +196,8 @@ while true; do
 	# of the elements of ${ORDER[@]} -- which are dollar-rounded prices
 	#
 	t_ave=$(( ( $(printf -- "%s + " ${ORDER[@]}) 0 ) / ${#ORDER[@]} ))
+	#
+	# code to rank items in ORDER by
 
 	#
 	# Build dialog checkbox entires
