@@ -61,6 +61,13 @@ function next_line()
 	return 0
 }
 
+function pct()
+{
+	local -i i_value=${1:?Missing pct arg 1}
+	local -i i_base=${2:?Missing pct arg 2}
+	echo $(( ( $i_base * 100 ) / $i_value ))
+}
+	
 #
 # urlencode - URL encode string
 #
@@ -160,7 +167,7 @@ BASE=()
 
 for (( ix=0 ; $ix < $ITEM_COUNT; ix++ )); do
 	x_index=$(round ${price[$ix]/\$/})
-	ITEMS[$x_index]="${price[$ix]}@${description[$ix]}"
+	ITEMS[$x_index]="${price[$ix]}@%s@${description[$ix]}"
 	KEYS[$x_index]=$x_index
 	debug "ITEM $x_index |${ITEMS[$x_index]}|"
 done
@@ -179,16 +186,24 @@ while true; do
 	# Window lines => 80% screen lines
 	# Window cols = 80% screen cols
 	# text lines = 80% screen lines
-	declare -i tty_lines=$(tput lines)
-	declare -i tty_cols=$(tput cols)
+	declare -i tty_lines=$(tput lines 2>/dev/tty)	# Need stderr > /dev/tty to get actual window size
+	declare -i tty_cols=$(tput cols 2>/dev/tty)		# Need stderr > /dev/tty to get actual window size
+	#
+	# If tput isn't there, fall back to stty
+	#
 	if [[ -z ${tty_lines:=} ]] ||  [[ -z ${tty_cols:-} ]]; then
 		read spl spv spx rl rows cl cols junk <<<"$(stty -a | grep rows)"
 		tty_lines=${rows/;//}
 		tty_cols=${cols/;//}
 	fi
-	declare -i win_lines=$((  ( $tty_lines / 10 ) * 8 ))
+	# Lines = 90% of window height
+	declare -i win_lines=$((  ( $tty_lines / 10 ) * 9 ))
+
+	# Columns = 80% of window height
 	declare -i win_cols=$((   ( $tty_cols  / 10 ) * 8 ))
-	declare -i text_lines=$(( ( $win_lines / 10 ) * 8 ))
+
+	# Text lines = 90% of panel height
+	declare -i text_lines=$(( ( $win_lines / 10 ) * 9 ))
 
 	X_ORDER="${ORDER[@]}"
 	#
@@ -197,14 +212,18 @@ while true; do
 	#
 	t_ave=$(( ( $(printf -- "%s + " ${ORDER[@]}) 0 ) / ${#ORDER[@]} ))
 	#
-	# code to rank items in ORDER by
-
-	#
 	# Build dialog checkbox entires
+	# Each entry is weighed against the computed average
 	#
 	x_args=()
 	for x_seq in ${ORDER[@]}; do
-		x_args+=( ${KEYS[$x_seq]} "${ITEMS[$x_seq]}" on )
+		t_price=${KEYS[$x_seq]}
+		t_rank=$(( ( $t_price * 10 ) / $t_ave ))	# Rank == price percent compared to average
+		status='on'									# Hook for turning on/off based upon rank
+		t_rank="$(printf "%3d" $t_rank)"
+		t_rank=${t_rank:0:-1}.${t_rank: -1}			# Change NN to N.N
+		t_rank=${t_rank/ \./0.}						# Add '0' to sub-1 value
+		x_args+=( ${KEYS[$x_seq]} "$(printf "${ITEMS[$x_seq]}" "[$t_rank]")" $status )
 	done
 	#
 	# Output of dialog is list of tags from selected rows
@@ -212,6 +231,7 @@ while true; do
 	# be sorted high to low.
 	#
 	resp=$(dialog --column-separator @ --title "Price search $search_for" \
+		--colors \
 		--extra-button --extra-label 'New Item' \
 		--cancel-label Done \
 		--ok-label Update \
