@@ -206,7 +206,7 @@ function price_tag()
 			$win_lines $win_cols $text_lines \
 			"${itemDialog[@]}" 2>&1 1>&3)
 		local rcode=$?
-		echo "DIALOG EXIT $rcode" 1>&2
+		debug "DIALOG EXIT $rcode"
 		case $rcode in
 			$DIALOG_OK) # Pressed 'OK' button - redo unless no changes (REFRESH)
 				debug "DIALOG_OK"
