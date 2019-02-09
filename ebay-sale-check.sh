@@ -128,7 +128,9 @@ function price_tag()
 	while [[ $currentLine -lt ${#inputLines[@]} ]]; do
 		if [[ ${inputLines[$currentLine],,} =~ ^sold\  ]]; then
 			((++currentLine))
-			itemDetails[$itemCount]="$(tr -cd '[:print:]' <<<"${inputLines[$currentLine]}")"
+			# this works in some places to remove cruft but not in others :-(
+			# itemDetails[$itemCount]="$(tr -cd '[:print:]' <<<"${inputLines[$currentLine]}")"
+			itemDetails[$itemCount]="${inputLines[$currentLine]}"
 			((++currentLine))
 			while [[ ! ${inputLines[$currentLine]} =~ \$[0-9]* ]] && \
 			      [[ $currentLine -lt ${#inputLines[@]} ]]; do
