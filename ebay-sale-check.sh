@@ -126,9 +126,9 @@ function price_tag()
 	local -a itemPrices=()
 
 	while [[ $currentLine -lt ${#inputLines[@]} ]]; do
-		if [[ ${inputLines[$currentLine]} =~ SOLD ]]; then
+		if [[ ${inputLines[$currentLine],,} =~ ^sold\  ]]; then
 			((++currentLine))
-			itemDetails[$itemCount]="${inputLines[$currentLine]}"
+			itemDetails[$itemCount]="$(tr -cd '[:print:]' <<<"${inputLines[$currentLine]}")"
 			((++currentLine))
 			while [[ ! ${inputLines[$currentLine]} =~ \$[0-9]* ]] && \
 			      [[ $currentLine -lt ${#inputLines[@]} ]]; do
