@@ -181,7 +181,8 @@ function price_tag()
 		# of the elements of ${displayIndex[@]} -- which are dollar-rounded prices
 		#
 		local -i t_AveragePrice=$(( ( $(printf -- "%s + " ${displayIndex[@]}) 0 ) / ${#displayIndex[@]} ))
-		#
+		local -i t_acPrice=$(( ($t_AveragePrice * 60 ) / 100 ))
+		# 
 		# Build dialog checkbox entires
 		# Each entry is weighed against the computed average
 		#
@@ -204,7 +205,7 @@ function price_tag()
 			--extra-button --extra-label 'New Item' \
 			--cancel-label Done \
 			--ok-label Update \
-			--checklist "Found ${#displayIndex[@]} items, average price \$$t_AveragePrice" \
+			--checklist "Found ${#displayIndex[@]} items, average price \$$t_AveragePrice, ACR price \$$t_acPrice" \
 			$win_lines $win_cols $text_lines \
 			"${itemDialog[@]}" 2>&1 1>&3)
 		local rcode=$?
