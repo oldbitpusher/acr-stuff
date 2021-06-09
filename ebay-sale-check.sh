@@ -273,6 +273,7 @@ if [[ -z ${tty_lines:=} ]] ||  [[ -z ${tty_cols:-} ]]; then
 	tty_lines=${rows/;//}
 	tty_cols=${cols/;//}
 fi
+eval "$(stty -a | tr ';' '\n'| egrep 'rows|columns' | sed -e 's/^ /tty_/' -e 's/ /=/g' -e 's/$/;/' )"
 
 # Lines = 90% of window height
 declare -i win_lines=$((  ( $tty_lines / 10 ) * 9 ))
